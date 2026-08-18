@@ -1,0 +1,6 @@
+Overseer source files considered: 117
+SweepTosher-dumper source files considered: 1
+
+=== Overseer vs SweepTosher-dumper: files with >= 3.0% verbatim overlap ===
+
+--- TOTAL vs SweepTosher-dumper: 6/42320 = 0.014% ---

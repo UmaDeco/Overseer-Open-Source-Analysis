@@ -1,0 +1,8 @@
+# The `nllb` feature builds the vendored CTranslate2 C++ with the STATIC MSVC CRT (/MT, forced by
+# ct2rs's build.rs). Rust + the cxx glue must match, or the link fails with LNK2038 runtime-library
+# mismatch — so force +crt-static for the whole DLL. This is safe for our injected cdylib: it carries
+# its OWN static CRT and the game keeps its dynamic CRT (separate modules, separate CRTs). We never
+# pass a CRT-owned object (malloc/FILE*/std::string) across the boundary — only IL2CPP GC strings and
+# COM interfaces — so the usual "don't mix CRTs" hazard doesn't apply.
+[target.x86_64-pc-windows-msvc]
+rustflags = ["-C", "target-feature=+crt-static"]

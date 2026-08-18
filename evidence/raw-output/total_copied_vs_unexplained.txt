@@ -1,0 +1,3 @@
+[excluding advisor/msgpack third-party vendor code]
+ALL non-trivial lines:    17398/41428 = 42.00% copied  |  24030 (58.00%) no match
+USEFUL lines only (excl. imports/mod/attrs/html markup): 16449/37014 = 44.44% copied  |  20565 (55.56%) no match

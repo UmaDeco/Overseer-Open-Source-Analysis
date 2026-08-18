@@ -1,0 +1,7 @@
+EXPORTS
+    ; UnityPlayer.dll (secondary / early vector)
+    UnityMain
+    ; cri_mana_vpx.dll (primary vector — loads after GameAssembly)
+    criVvp9_GetAlphaInterface
+    criVvp9_GetInterface
+    criVvp9_SetUserAllocator

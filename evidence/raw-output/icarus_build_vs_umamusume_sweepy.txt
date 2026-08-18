@@ -1,0 +1,10 @@
+=== Byte-identical asset check ===
+broom.png: Icarus=dd53699642f937ef9e2e3ccf4f6110a6  sweepy=dd53699642f937ef9e2e3ccf4f6110a6  IDENTICAL
+sweep.png: Icarus=b2f12b9ca825f8bb904abd256a1a9b3a  sweepy=b2f12b9ca825f8bb904abd256a1a9b3a  IDENTICAL
+
+=== Line-overlap check (CSS/HTML) ===
+styles.css: 1887/2501 = 75.4% of Icarus's lines found verbatim in sweepy's version
+index.html: 129/1524 = 8.5% of Icarus's lines found verbatim in sweepy's version
+
+=== races/ folder ===
+Icarus: 283 files, sweepy: 283 files

@@ -1,0 +1,15 @@
+Feature                                  Lines  Copied      %   Heaven%  Hachimi%   sweepy%
+Translation / localization engine         4567     788  17.3%      5.4%     14.1%      0.4%
+Skip & speed                              3835    1413  36.8%     36.8%      1.4%      1.2%
+Career tracking & guidance (advisor)      7181    1547  21.5%      1.3%      0.7%     20.3%
+Legacy & inheritance (affinity)           1276     336  26.3%     25.9%      1.6%      0.0%
+Team Trials                                490     437  89.2%     89.2%      0.8%      0.2%
+Performance & visuals                      879     468  53.2%     53.2%      0.8%      0.0%
+Race telemetry / free camera              3267    3179  97.3%     97.3%      1.0%      0.4%
+Custom title intro                         799     763  95.5%     95.5%      1.3%      0.0%
+Self-updater                               559     491  87.8%     87.8%      2.0%      0.0%
+Web dashboard (control panel)             7679    1085  14.1%     10.5%      1.1%      3.6%
+Core overlay UI framework                 3783    3424  90.5%     90.5%      0.9%      0.1%
+IL2CPP hooking / plugin-SDK core          6642    3428  51.6%     51.1%      2.5%      0.3%
+
+GRAND TOTAL (these feature groups only): 17359/40957 = 42.38%

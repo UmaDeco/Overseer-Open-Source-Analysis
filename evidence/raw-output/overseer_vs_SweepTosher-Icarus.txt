@@ -1,0 +1,8 @@
+Overseer source files considered: 117
+SweepTosher-Icarus source files considered: 5
+
+=== Overseer vs SweepTosher-Icarus: files with >= 3.0% verbatim overlap ===
+  3.8%  (  10/ 263)  advisor\uma_sidecar\__main__.py   <- client.py(6), main.py(4), crypto.py(1)
+  3.3%  (   8/ 241)  advisor\career_bot\scenarios\grand_live.py   <- main.py(7), client.py(2)
+
+--- TOTAL vs SweepTosher-Icarus: 104/42320 = 0.246% ---

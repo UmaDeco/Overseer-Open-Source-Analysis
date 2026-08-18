@@ -1,0 +1,16 @@
+Overseer source files considered: 117
+umamusume-sweepy source files considered: 17
+
+=== Overseer vs umamusume-sweepy: files with >= 3.0% verbatim overlap ===
+ 78.3%  ( 403/ 515)  advisor\career_bot\master_data.py   <- career_bot\master_data.py(511), main.py(114), career_bot\runner.py(63)
+ 35.4%  ( 120/ 339)  advisor\career_bot\races.py   <- career_bot\runner.py(171), career_bot\races.py(134), career_bot\items.py(68)
+ 35.1%  ( 755/2154)  advisor\career_bot\runner.py   <- career_bot\runner.py(2084), main.py(383), career_bot\items.py(289)
+ 28.8%  (  64/ 222)  advisor\career_bot\presets.py   <- career_bot\presets.py(65), main.py(30), career_bot\runner.py(22)
+ 17.5%  ( 246/1406)  native\src\web\overseer.css   <- public\styles.css(3642)
+ 10.7%  (  33/ 308)  advisor\career_bot\events.py   <- career_bot\runner.py(71), main.py(52), uma_api\client.py(37)
+ 10.3%  (  27/ 263)  advisor\uma_sidecar\__main__.py   <- main.py(89), career_bot\runner.py(34), uma_api\client.py(20)
+  9.5%  (  23/ 241)  advisor\career_bot\scenarios\grand_live.py   <- main.py(69), career_bot\runner.py(62), career_bot\scenarios\mant.py(48)
+  7.0%  (  35/ 498)  advisor\career_bot\ai_dataset.py   <- main.py(126), career_bot\runner.py(43), uma_api\client.py(29)
+  6.8%  (  12/ 176)  advisor\career_bot\scenarios\base.py   <- career_bot\runner.py(16), career_bot\scenarios\mant.py(12), career_bot\items.py(9)
+
+--- TOTAL vs umamusume-sweepy: 1776/42320 = 4.197% ---

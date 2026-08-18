@@ -1,0 +1,112 @@
+[package]
+name = "overseer_overlay"
+# Single source of truth for the version shown in the overlay footer.
+version = "3.5.15"
+edition = "2021"
+authors = []
+description = "Overseer — in-game overlay (D3D11 + imgui) for Umamusume Pretty Derby (Global)."
+
+[lib]
+# cdylib → produces overseer_overlay.dll, loaded into the game process.
+crate-type = ["cdylib"]
+
+[features]
+# Default build = the full public overlay: SuperSkip, FPS unlock, UI speed, graphics
+# /display options, Team Trials capture, free camera + live race telemetry, and the
+# custom title intro. Just `cargo build --release`.
+default = ["racenet", "races_on", "freecam", "banner"]
+# `raceread` = the live race reader (race.rs): live frames + finish placement (the
+#   race-result skip needs placement to know you won).
+raceread = []
+# `racenet` = player-horse identity from the network response (msgpack only).
+racenet = ["raceread", "dep:rmpv"]
+# `races_on` = race-result auto-skip defaults ON.
+races_on = []
+# `freecam` = race free camera (3rd-person chase of the player's Uma) + live race
+#   telemetry HUD.
+freecam = []
+# `banner` = the custom title intro player (video + audio replacement of the title
+#   screen). The intro media is local-only — drop intro_full.bin / intro_song.ogg next
+#   to the DLL (build them with pack_intro.py); without them the game starts normally.
+banner = ["dep:jpeg-decoder", "dep:rodio", "dep:windows"]
+
+overseer = []
+# `nllb` = in-process neural MT fallback (NLLB-200 via CTranslate2/ct2rs). NOT default: it compiles
+# the vendored CTranslate2 C++ (needs CMake + MSVC + `+crt-static`), so keep it out of quick dev
+# builds. Ship with `cargo build --release --features nllb`. Requires the model at <dll_dir>/nllb/.
+nllb = ["dep:ct2rs"]
+[dependencies]
+# In-process neural machine translation (CTranslate2 Rust binding). Ruy backend (no external BLAS) +
+# HF tokenizers (reads the model's tokenizer.json). `nllb` feature only. See nllb.rs.
+ct2rs = { version = "0.9.19", default-features = false, features = ["ruy", "tokenizers"], optional = true }
+# hudhook gives us the D3D11 Present hook + imgui renderer + WndProc input hook.
+hudhook = "0.6"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+once_cell = "1"
+log = "0.4"
+# AES-CBC — re-encrypt the decompressed response so a companion overlay's fixed-key decrypt
+# yields plain msgpack (the native uma_bridge companion feed).
+aes = "0.8"
+cbc = { version = "0.1", features = ["alloc"] }
+# In-process IL2CPP method hooking via trampolining detours on the compiled method
+# pointers. RawDetour/GenericDetour are stable, so keep default features only.
+retour = { version = "0.3", default-features = false }
+# Typed D3D11/DXGI for the native intro video player (a dynamic-texture quad drawn via
+# an imgui RawCallback). Pinned to hudhook's version so the COM types match. `banner` only.
+windows = { version = "0.54", optional = true, features = [
+  "Win32_Foundation",
+  "Win32_Graphics_Direct3D",
+  "Win32_Graphics_Direct3D11",
+  "Win32_Graphics_Direct3D_Fxc",
+  "Win32_Graphics_Dxgi",
+  "Win32_Graphics_Dxgi_Common",
+] }
+# GetModuleHandleW / GetProcAddress / thread spawn / input + window helpers + clipboard,
+# shared memory, audio (title BGM mute), shell, and WinHttp (Team Trials capture).
+windows-sys = { version = "0.59", features = [
+  "Win32_Foundation",
+  "Win32_System_LibraryLoader",
+  "Win32_System_Threading",
+  "Win32_System_DataExchange",
+  "Win32_System_Memory",
+  "Win32_System_SystemInformation",
+  "Win32_Media_Audio",
+  "Win32_UI_Input_KeyboardAndMouse",
+  "Win32_UI_WindowsAndMessaging",
+  "Win32_UI_Shell",
+  "Win32_Networking_WinHttp",
+] }
+# msgpack — decode the race network response for the player-horse identity (`racenet`).
+rmpv = { version = "1", optional = true }
+# Race REVEAL (race_reveal.rs): the race_scenario blob is base64(gzip(binary)). Small, pure-Rust.
+base64 = "0.22"
+flate2 = "1"
+# PNG decode/encode for the texture/atlas localization diff pipeline.
+png = "0.17"
+# Localization content store: lock-free hot-reloadable dict swap + fast FNV maps.
+arc-swap = "1"
+fnv = "1"
+# SQL SELECT parsing for master.mdb text localization (version-pinned for SELECT-AST parity).
+sqlparser = "0.43"
+# CJK-aware text wrapping/fitting for translated dialogue + skill text (version-pinned for stable wrapping).
+textwrap = "0.16"
+unicode-width = "0.1"
+# Lookbehind-capable regex for Overseer's word-boundary glossary substitution (regex crate can't do lookaround).
+fancy-regex = "0.13"
+# Pure-Rust JPEG decode for the intro video player (frames decoded into textures). `banner` only.
+jpeg-decoder = { version = "0.3", optional = true }
+# Native audio playback for the intro song. `banner` only.
+rodio = { version = "0.19", optional = true }
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
+panic = "abort"
+strip = true
+
+[patch.crates-io]
+# hudhook 0.6.5 maps mouse buttons as ImGui keyboard aliases, which trips ImGui's
+# AddKeyEvent assert on click. Local patch removes those alias keys.
+hudhook = { path = "vendor/hudhook-0.6.5" }

@@ -1,0 +1,211 @@
+//! Overseer — display & window QoL. Four independent, cosmetic/QoL tweaks:
+//!
+//!   #3 Always-on-top + block-minimize — pure Win32 on the game window.
+//!   #2 Borderless / fullscreen mode    — hook `UnityEngine.Screen.SetResolution_Injected`
+//!                                         and substitute the requested full-screen mode.
+//!   #1 Render scale (super-sampling)    — hook `Gallop.Screen.get_Width/get_Height` to return
+//!                                         a scaled internal resolution (scales the WHOLE
+//!                                         pipeline consistently), and recreate the 3D render
+//!                                         texture on resize via `UIManager.ChangeResizeUIForPC`
+//!                                         (this is the piece a per-component scale was missing).
+//!   #4 UI scale                          — in the same resize hook, set `CanvasScaler.scaleFactor`
+//!                                         on every canvas scaler the UIManager owns.
+//!
+//! Everything defaults to OFF / 1.0 and resolves defensively: a missing class/method is logged
+//! and skipped, never fatal. No gameplay effect → ships in every build.
+
+#![allow(dead_code)]
+
+use std::sync::atomic::{AtomicBool, AtomicI32, AtomicU32, AtomicUsize, Ordering};
+use std::sync::OnceLock;
+
+use retour::RawDetour;
+
+use crate::il2cpp;
+
+fn log(msg: &str) {
+    crate::tools::log(msg);
+}
+
+// ── shared settings ──────────────────────────────────────────────────────────
+static ALWAYS_ON_TOP: AtomicBool = AtomicBool::new(false);
+static BLOCK_MINIMIZE: AtomicBool = AtomicBool::new(false);
+static DISPLAY_MODE: AtomicI32 = AtomicI32::new(0); // 0 = off, 1 = borderless, 2 = exclusive, 3 = windowed
+static RENDER_SCALE: AtomicU32 = AtomicU32::new(0x3f80_0000); // f32 1.0
+static UI_SCALE: AtomicU32 = AtomicU32::new(0x3f80_0000); // f32 1.0
+
+// No low-spec knob here on purpose: this module only owns window/resolution QoL, and dropping the
+// window resolution behind the user's back isn't something "low resources" should do. Low-spec is
+// handled where it can actually buy frames — graphics (AA/lights/shadows) and cyspring (physics).
+
+pub fn always_on_top() -> bool { ALWAYS_ON_TOP.load(Ordering::Relaxed) }
+pub fn block_minimize() -> bool { BLOCK_MINIMIZE.load(Ordering::Relaxed) }
+pub fn display_mode() -> i32 { DISPLAY_MODE.load(Ordering::Relaxed) }
+pub fn render_scale() -> f32 { f32::from_bits(RENDER_SCALE.load(Ordering::Relaxed)) }
+pub fn ui_scale() -> f32 { f32::from_bits(UI_SCALE.load(Ordering::Relaxed)) }
+
+pub fn set_block_minimize(on: bool) { BLOCK_MINIMIZE.store(on, Ordering::Relaxed); }
+pub fn set_display_mode(m: i32) { DISPLAY_MODE.store(m, Ordering::Relaxed); }
+/// Resolution scaling was REMOVED 2026-07-17. It rode the SetResolution hook to multiply the game's
+/// own resolution, but it repeatedly corrupted the display: forced FullScreenWindow, and a stale
+/// ×0.5 test left the game rendering 553×311 upscaled to the monitor (blurry, zoomed) — persisted in
+/// the Unity registry so it survived restarts. The lever is not worth the risk (the old get_Width/
+/// get_Height version was removed for faulting too). This setter now only stores the value; nothing
+/// applies it. Kept as a no-op so old settings files / the field still load.
+pub fn set_render_scale(s: f32) {
+    RENDER_SCALE.store(s.clamp(0.5, 2.0).to_bits(), Ordering::Relaxed); // stored only; nothing applies it
+}
+pub fn set_ui_scale(s: f32) { UI_SCALE.store(s.clamp(0.7, 1.5).to_bits(), Ordering::Relaxed); }
+
+// ════════════════════════════ #3 Win32: window ═══════════════════════════════
+use windows_sys::Win32::Foundation::{HWND, LPARAM, LRESULT, WPARAM};
+use windows_sys::Win32::UI::WindowsAndMessaging::{
+    CallNextHookEx, FindWindowW, GetWindowThreadProcessId, SetWindowPos, SetWindowsHookExW,
+    HCBT_MINMAX, HHOOK, HWND_NOTOPMOST, HWND_TOPMOST, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE,
+    SW_RESTORE, WH_CBT,
+};
+
+static GAME_HWND: AtomicUsize = AtomicUsize::new(0);
+
+fn wide(s: &str) -> Vec<u16> {
+    s.encode_utf16().chain(std::iter::once(0)).collect()
+}
+
+fn find_hwnd() -> HWND {
+    let cur = GAME_HWND.load(Ordering::Relaxed);
+    if cur != 0 {
+        return cur as HWND;
+    }
+    let cls = wide("UnityWndClass");
+    // Global title is "Umamusume"; FindWindow is case-insensitive on the title.
+    for title in ["umamusume", "UmamusumePrettyDerby_Jpn"] {
+        let t = wide(title);
+        let h = unsafe { FindWindowW(cls.as_ptr(), t.as_ptr()) };
+        if !h.is_null() {
+            GAME_HWND.store(h as usize, Ordering::Relaxed);
+            return h;
+        }
+    }
+    std::ptr::null_mut()
+}
+
+/// The game's top-level window handle as a usize (0 if not found yet). For taskbar-flash alerts.
+pub fn game_hwnd() -> usize {
+    find_hwnd() as usize
+}
+
+pub fn set_always_on_top(on: bool) {
+    ALWAYS_ON_TOP.store(on, Ordering::Relaxed);
+    // SetWindowPos sends synchronous messages to the window's UI thread. Calling it from the
+    // overlay's render/Present thread deadlocks the game, so apply it from a worker thread.
+    std::thread::spawn(move || {
+        let h = find_hwnd();
+        if h.is_null() {
+            return;
+        }
+        let insert_after = if on { HWND_TOPMOST } else { HWND_NOTOPMOST };
+        unsafe {
+            SetWindowPos(h, insert_after, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
+        }
+    });
+}
+
+static mut HCBT: HHOOK = std::ptr::null_mut();
+unsafe extern "system" fn cbt_proc(ncode: i32, wparam: WPARAM, lparam: LPARAM) -> LRESULT {
+    // HCBT_MINMAX: a window is being minimized/maximized. Block minimize when enabled.
+    if ncode == HCBT_MINMAX as i32 && lparam as i32 != SW_RESTORE && BLOCK_MINIMIZE.load(Ordering::Relaxed) {
+        return 1; // non-zero = swallow the operation
+    }
+    CallNextHookEx(HCBT, ncode, wparam, lparam)
+}
+
+/// Install the CBT hook on the game window's UI thread (for block-minimize) and apply
+/// always-on-top if it was persisted on. Best-effort; safe to call once at boot.
+pub fn install_window() {
+    let h = find_hwnd();
+    if h.is_null() {
+        log("[display] game window not found (window QoL deferred)");
+        return;
+    }
+    unsafe {
+        let tid = GetWindowThreadProcessId(h, std::ptr::null_mut());
+        if tid != 0 {
+            // A thread-specific CBT hook avoids touching other processes.
+            let hh = SetWindowsHookExW(WH_CBT, Some(cbt_proc), std::ptr::null_mut(), tid);
+            if !hh.is_null() {
+                HCBT = hh;
+            }
+        }
+    }
+    if ALWAYS_ON_TOP.load(Ordering::Relaxed) {
+        set_always_on_top(true);
+    }
+    log("[display] window QoL installed");
+}
+
+// ════════════════════ #2 UnityEngine.Screen.SetResolution ════════════════════
+#[repr(C)]
+struct RefreshRate {
+    numerator: u32,
+    denominator: u32,
+}
+
+static TR_SETRES: AtomicUsize = AtomicUsize::new(0);
+static D_SETRES: OnceLock<RawDetour> = OnceLock::new();
+
+// SetResolution_Injected(width, height, FullScreenMode, RefreshRate*) — a raw icall (no MethodInfo).
+// This hook ONLY maps the user's optional Screen-mode preference; it never changes the resolution.
+// (Resolution SCALING was removed 2026-07-17 — see set_render_scale. It multiplied w/h here and
+// re-issued via a pump, which corrupted the display: forced fullscreen + a stale 553x311 upscaled to
+// the monitor, persisted in the Unity registry.) When DISPLAY_MODE is 0 (game default) this is a pure
+// pass-through and touches nothing.
+unsafe extern "C" fn on_set_resolution(w: i32, h: i32, mode: i32, refresh: *const RefreshRate) {
+    crate::crashlog::crumb(13);
+    let t = TR_SETRES.load(Ordering::Relaxed);
+    if t == 0 {
+        return;
+    }
+    let orig: unsafe extern "C" fn(i32, i32, i32, *const RefreshRate) = std::mem::transmute(t);
+    // Our display mode → Unity FullScreenMode (Exclusive=0, FullScreenWindow=1, Windowed=3).
+    let m = match DISPLAY_MODE.load(Ordering::Relaxed) {
+        1 => 1, // Borderless → FullScreenWindow
+        2 => 0, // Exclusive
+        3 => 3, // Windowed
+        _ => mode, // Game default → pass the game's own mode through unchanged
+    };
+    orig(w, h, m, refresh);
+}
+
+// NOTE: the OLD render scale (#1) hooked `Gallop.Screen.get_Width/get_Height` — tiny thunk getters
+// whose relocated retour trampoline faults when called (access violation in trampoline memory).
+// That lever is gone for good. THIS implementation adds no new detour at all: it rides the ONE
+// existing SetResolution hook, which has been stable since the display-mode feature shipped.
+
+// ════════════════════════════════ install ════════════════════════════════════
+pub fn install() -> Result<(), String> {
+    let mut notes: Vec<&str> = Vec::new();
+
+    // #2 — UnityEngine.Screen.SetResolution_Injected (raw icall).
+    let setres = il2cpp::resolve_icall("UnityEngine.Screen::SetResolution_Injected(System.Int32,System.Int32,UnityEngine.FullScreenMode,UnityEngine.RefreshRate)");
+    if !setres.is_null() && !unsafe { il2cpp::is_detoured(setres) } {
+        if let Ok(d) = unsafe { RawDetour::new(setres as *const (), on_set_resolution as *const ()) } {
+            if unsafe { d.enable() }.is_ok() {
+                TR_SETRES.store(d.trampoline() as *const () as usize, Ordering::Relaxed);
+                let _ = D_SETRES.set(d);
+                notes.push("fullscreen");
+            }
+        }
+    }
+
+    // #4 — Gallop.UIManager.ChangeResizeUIForPC — REMOVED 2026-07-04. `apply_ui_scale` has been
+    // disabled since 2026-06-14 (it crashed), so this detour did nothing but call the original. Worse:
+    // ChangeResizeUIForPC throws a managed (C++/0xe06d7363) exception during the URA Finale ending
+    // sequence, and having a RawDetour on it broke the exception unwind -> hard crash on the last
+    // race. Nothing here was useful, so the hook is gone (the fullscreen/render-scale hooks stay).
+
+    if notes.is_empty() {
+        return Err("no display hooks installed".into());
+    }
+    log(&format!("[display] hooks: {}", notes.join(", ")));
+    Ok(())
+}
